@@ -1,7 +1,7 @@
 import FreeCAD
 import FreeCADGui
-import math
 from PySide import QtGui, QtCore
+import math
 
 # ------------------------------
 # Helper functions
@@ -29,19 +29,16 @@ def euler_to_quaternion(yaw, pitch, roll):
 
 def quaternion_to_euler(qx, qy, qz, qw):
     """Convert quaternion to Euler angles in degrees (Z-Y-X)."""
-    # roll (X-axis)
     sinr_cosp = 2 * (qw * qx + qy * qz)
     cosr_cosp = 1 - 2 * (qx**2 + qy**2)
     roll = math.atan2(sinr_cosp, cosr_cosp)
 
-    # pitch (Y-axis)
     sinp = 2 * (qw * qy - qz * qx)
     if abs(sinp) >= 1:
         pitch = math.copysign(math.pi / 2, sinp)
     else:
         pitch = math.asin(sinp)
 
-    # yaw (Z-axis)
     siny_cosp = 2 * (qw * qz + qx * qy)
     cosy_cosp = 1 - 2 * (qy**2 + qz**2)
     yaw = math.atan2(siny_cosp, cosy_cosp)
@@ -49,47 +46,75 @@ def quaternion_to_euler(qx, qy, qz, qw):
     return math.degrees(yaw), math.degrees(pitch), math.degrees(roll)
 
 # ------------------------------
-# Macro main logic
+# Task Panel Class
 # ------------------------------
 
-selection = FreeCADGui.Selection.getSelection()
-if not selection:
-    QtGui.QMessageBox.information(None, "Euler Editor", "Select a single object first.")
-else:
-    obj = selection[0]
-    qx, qy, qz, qw = obj.Placement.Rotation.Q
-    yaw, pitch, roll = quaternion_to_euler(qx, qy, qz, qw)
+class EulerRotationTaskPanel(QtGui.QWidget):
+    def __init__(self):
+        super(EulerRotationTaskPanel, self).__init__()
+        self.setWindowTitle("Euler Rotation Task Panel")
+        self.obj = None
 
-    # Input dialog
-    dialog = QtGui.QDialog()
-    dialog.setWindowTitle("Edit Euler Angles (degrees)")
-    layout = QtGui.QFormLayout(dialog)
+        layout = QtGui.QVBoxLayout(self)
 
-    x_input = QtGui.QLineEdit(str(round(roll, 3)))
-    y_input = QtGui.QLineEdit(str(round(pitch, 3)))
-    z_input = QtGui.QLineEdit(str(round(yaw, 3)))
+        self.info_label = QtGui.QLabel("Select an object to edit its rotation")
+        layout.addWidget(self.info_label)
 
-    layout.addRow("X (roll):", x_input)
-    layout.addRow("Y (pitch):", y_input)
-    layout.addRow("Z (yaw):", z_input)
+        form_layout = QtGui.QFormLayout()
+        self.x_input = QtGui.QLineEdit()
+        self.y_input = QtGui.QLineEdit()
+        self.z_input = QtGui.QLineEdit()
+        form_layout.addRow("X (roll):", self.x_input)
+        form_layout.addRow("Y (pitch):", self.y_input)
+        form_layout.addRow("Z (yaw):", self.z_input)
+        layout.addLayout(form_layout)
 
-    # OK / Cancel
-    button_box = QtGui.QDialogButtonBox(QtGui.QDialogButtonBox.Ok | QtGui.QDialogButtonBox.Cancel)
-    layout.addWidget(button_box)
+        self.apply_button = QtGui.QPushButton("Apply Rotation")
+        layout.addWidget(self.apply_button)
+        self.apply_button.clicked.connect(self.apply_rotation)
 
-    def accept():
-        try:
-            r = float(x_input.text())
-            p = float(y_input.text())
-            y = float(z_input.text())
-        except ValueError:
-            QtGui.QMessageBox.warning(dialog, "Error", "Please enter valid numbers.")
+        self.refresh_button = QtGui.QPushButton("Refresh from selection")
+        layout.addWidget(self.refresh_button)
+        self.refresh_button.clicked.connect(self.refresh_from_selection)
+
+        self.refresh_from_selection()
+
+    def refresh_from_selection(self):
+        selection = FreeCADGui.Selection.getSelection()
+        if not selection:
+            self.obj = None
+            self.info_label.setText("No object selected")
+            self.x_input.setText("")
+            self.y_input.setText("")
+            self.z_input.setText("")
             return
-        qx_new, qy_new, qz_new, qw_new = euler_to_quaternion(y, p, r)
-        obj.Placement.Rotation = FreeCAD.Rotation(qx_new, qy_new, qz_new, qw_new)
-        dialog.accept()
 
-    button_box.accepted.connect(accept)
-    button_box.rejected.connect(dialog.reject)
+        self.obj = selection[0]
+        self.info_label.setText(f"Editing rotation of: {self.obj.Name}")
+        qx, qy, qz, qw = self.obj.Placement.Rotation.Q
+        yaw, pitch, roll = quaternion_to_euler(qx, qy, qz, qw)
+        self.x_input.setText(str(round(roll, 3)))
+        self.y_input.setText(str(round(pitch, 3)))
+        self.z_input.setText(str(round(yaw, 3)))
 
-    dialog.exec_()
+    def apply_rotation(self):
+        if not self.obj:
+            QtGui.QMessageBox.warning(self, "No Object", "Select an object first")
+            return
+        try:
+            r = float(self.x_input.text())
+            p = float(self.y_input.text())
+            y = float(self.z_input.text())
+        except ValueError:
+            QtGui.QMessageBox.warning(self, "Invalid Input", "Enter numeric values")
+            return
+        qx, qy, qz, qw = euler_to_quaternion(y, p, r)
+        self.obj.Placement.Rotation = FreeCAD.Rotation(qx, qy, qz, qw)
+        FreeCAD.ActiveDocument.recompute()
+
+# ------------------------------
+# Show Task Panel
+# ------------------------------
+
+panel = EulerRotationTaskPanel()
+FreeCADGui.Control.showDialog(panel)
