@@ -1,0 +1,95 @@
+import FreeCAD
+import FreeCADGui
+import math
+from PySide import QtGui, QtCore
+
+# ------------------------------
+# Helper functions
+# ------------------------------
+
+def euler_to_quaternion(yaw, pitch, roll):
+    """Convert Euler angles in degrees (Z-Y-X) to quaternion."""
+    y = math.radians(yaw)
+    p = math.radians(pitch)
+    r = math.radians(roll)
+
+    c1 = math.cos(y / 2)
+    s1 = math.sin(y / 2)
+    c2 = math.cos(p / 2)
+    s2 = math.sin(p / 2)
+    c3 = math.cos(r / 2)
+    s3 = math.sin(r / 2)
+
+    qx = (c1 * c2 * s3) - (s1 * s2 * c3)
+    qy = (c1 * s2 * c3) + (s1 * c2 * s3)
+    qz = (s1 * c2 * c3) - (c1 * s2 * s3)
+    qw = (c1 * c2 * c3) + (s1 * s2 * s3)
+
+    return qx, qy, qz, qw
+
+def quaternion_to_euler(qx, qy, qz, qw):
+    """Convert quaternion to Euler angles in degrees (Z-Y-X)."""
+    # roll (X-axis)
+    sinr_cosp = 2 * (qw * qx + qy * qz)
+    cosr_cosp = 1 - 2 * (qx**2 + qy**2)
+    roll = math.atan2(sinr_cosp, cosr_cosp)
+
+    # pitch (Y-axis)
+    sinp = 2 * (qw * qy - qz * qx)
+    if abs(sinp) >= 1:
+        pitch = math.copysign(math.pi / 2, sinp)
+    else:
+        pitch = math.asin(sinp)
+
+    # yaw (Z-axis)
+    siny_cosp = 2 * (qw * qz + qx * qy)
+    cosy_cosp = 1 - 2 * (qy**2 + qz**2)
+    yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    return math.degrees(yaw), math.degrees(pitch), math.degrees(roll)
+
+# ------------------------------
+# Macro main logic
+# ------------------------------
+
+selection = FreeCADGui.Selection.getSelection()
+if not selection:
+    QtGui.QMessageBox.information(None, "Euler Editor", "Select a single object first.")
+else:
+    obj = selection[0]
+    qx, qy, qz, qw = obj.Placement.Rotation.Q
+    yaw, pitch, roll = quaternion_to_euler(qx, qy, qz, qw)
+
+    # Input dialog
+    dialog = QtGui.QDialog()
+    dialog.setWindowTitle("Edit Euler Angles (degrees)")
+    layout = QtGui.QFormLayout(dialog)
+
+    x_input = QtGui.QLineEdit(str(round(roll, 3)))
+    y_input = QtGui.QLineEdit(str(round(pitch, 3)))
+    z_input = QtGui.QLineEdit(str(round(yaw, 3)))
+
+    layout.addRow("X (roll):", x_input)
+    layout.addRow("Y (pitch):", y_input)
+    layout.addRow("Z (yaw):", z_input)
+
+    # OK / Cancel
+    button_box = QtGui.QDialogButtonBox(QtGui.QDialogButtonBox.Ok | QtGui.QDialogButtonBox.Cancel)
+    layout.addWidget(button_box)
+
+    def accept():
+        try:
+            r = float(x_input.text())
+            p = float(y_input.text())
+            y = float(z_input.text())
+        except ValueError:
+            QtGui.QMessageBox.warning(dialog, "Error", "Please enter valid numbers.")
+            return
+        qx_new, qy_new, qz_new, qw_new = euler_to_quaternion(y, p, r)
+        obj.Placement.Rotation = FreeCAD.Rotation(qx_new, qy_new, qz_new, qw_new)
+        dialog.accept()
+
+    button_box.accepted.connect(accept)
+    button_box.rejected.connect(dialog.reject)
+
+    dialog.exec_()
